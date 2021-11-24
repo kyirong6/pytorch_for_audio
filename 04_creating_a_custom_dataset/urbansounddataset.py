@@ -10,10 +10,11 @@ import os
 
 class UrbanSoundDataset(Dataset):
     def __init__(self, annotations_file, audio_dir, transformation, 
-                 target_sample_rate, num_samples):
+                 target_sample_rate, num_samples, device):
         self.annotations = pd.read_csv(annotations_file)
         self.audio_dir = audio_dir
-        self.transformation = transformation
+        self.device = device
+        self.transformation = transformation.to(self.device)
         self.target_sample_rate = target_sample_rate
         self.num_samples = num_samples
         
@@ -37,6 +38,7 @@ class UrbanSoundDataset(Dataset):
         # signal -> (num_channels, sample) -> (2, 16000) : this means it is stereo because of 2 channels
         # ideally: signal -> (1, 16000) : 1 channel
         signal, sr = torchaudio.load(audio_sample_path)
+        signal = signal.to(self.device)
         signal = self._resample_if_necessary(signal, sr)
         signal = self._mix_down_if_necessary(signal)
         signal = self._right_pad_if_necessary(signal)
@@ -99,6 +101,13 @@ if __name__ == "__main__":
     SAMPLE_RATE = 22050
     NUM_SAMPLES = 22050
     
+    if torch.cuda.is_available():
+        device = "cuda"
+    else:
+        device = "cpu"
+    print(f"using device: {device}")
+    
+    
     mel_spectrogram = torchaudio.transforms.MelSpectrogram(
         sample_rate=SAMPLE_RATE,
         n_fft=1024,
@@ -110,7 +119,8 @@ if __name__ == "__main__":
                             AUDIO_DIR, 
                             mel_spectrogram,
                             SAMPLE_RATE,
-                            NUM_SAMPLES)
+                            NUM_SAMPLES,
+                            device)
     print(f"There are {len(usd)} samples in the dataset.")
     signal, label = usd[0]
    #print(signal, label)
