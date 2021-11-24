@@ -1,6 +1,7 @@
 """Reference series: https://www.youtube.com/watch?v=88FFnqt5MNI&list=PL-wATfeyAMNoirN4idjev6aRu8ISZYVWm&index=4
 """
 import torch
+from torch._C import _set_worker_signal_handlers
 from torch.utils.data import Dataset
 import pandas as pd
 import torchaudio
@@ -9,11 +10,12 @@ import os
 
 class UrbanSoundDataset(Dataset):
     def __init__(self, annotations_file, audio_dir, transformation, 
-                 target_sample_rate):
+                 target_sample_rate, num_samples):
         self.annotations = pd.read_csv(annotations_file)
         self.audio_dir = audio_dir
         self.transformation = transformation
         self.target_sample_rate = target_sample_rate
+        self.num_samples = num_samples
         
         
     def __len__(self):
@@ -37,8 +39,28 @@ class UrbanSoundDataset(Dataset):
         signal, sr = torchaudio.load(audio_sample_path)
         signal = self._resample_if_necessary(signal, sr)
         signal = self._mix_down_if_necessary(signal)
+        signal = self._right_pad_if_necessary(signal)
+        signal = self._cut_if_necessary(signal)
         signal = self.transformation(signal)
         return signal, label
+    
+    
+    def _cut_if_necessary(self, signal):
+        # signal -> Tensor -> (num_channels, num_samples) -> (1, 50000) -> (1, 22050)
+        if signal.shape[1] > self.num_samples:
+            # only keep up to 22050 (self.num_samples)
+            signal = signal[:, :self.num_samples] 
+        return signal
+            
+    
+    def _right_pad_if_necessary(self, signal):
+        length_signal = signal.shape[1]
+        if length_signal < self.num_samples:
+            # right pad: [1, 1, 1] -> [1, 1, 1, 0, 0]
+            num_missing_samples = self.num_samples - length_signal
+            last_dim_padding = (0, num_missing_samples)
+            signal = torch.nn.functional.pad(signal, last_dim_padding)
+        return signal
     
     
     def _resample_if_necessary(self, signal, sr):
@@ -74,7 +96,8 @@ class UrbanSoundDataset(Dataset):
 if __name__ == "__main__":
     ANNOTATIONS_FILE = "/Users/choendenkyirong/Desktop/developer/code/src/github/kyirong6/pytorch_for_audio/datasets/UrbanSound8K/metadata/UrbanSound8k.csv"
     AUDIO_DIR = "/Users/choendenkyirong/Desktop/developer/code/src/github/kyirong6/pytorch_for_audio/datasets/UrbanSound8K/audio" 
-    SAMPLE_RATE = 16000
+    SAMPLE_RATE = 22050
+    NUM_SAMPLES = 22050
     
     mel_spectrogram = torchaudio.transforms.MelSpectrogram(
         sample_rate=SAMPLE_RATE,
@@ -83,9 +106,11 @@ if __name__ == "__main__":
         n_mels=64
         )
     
-    usd = UrbanSoundDataset(ANNOTATIONS_FILE, AUDIO_DIR, mel_spectrogram,
-                            SAMPLE_RATE)
+    usd = UrbanSoundDataset(ANNOTATIONS_FILE, 
+                            AUDIO_DIR, 
+                            mel_spectrogram,
+                            SAMPLE_RATE,
+                            NUM_SAMPLES)
     print(f"There are {len(usd)} samples in the dataset.")
     signal, label = usd[0]
-    print(signal, label)
-    
+   #print(signal, label)
