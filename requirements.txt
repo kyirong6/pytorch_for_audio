@@ -1,3 +1,4 @@
 torchaudio
 pandas
 torch
+torchsummary
